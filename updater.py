@@ -38,7 +38,7 @@ def _cleanup():
             pass
 
 
-def check():
+def check(fill=None):
     try:
         ver_src = _fetch('version.py')
         remote_ver = None
@@ -61,7 +61,10 @@ def check():
         print('OTA: downloading {}...'.format(remote_ver))
         _cleanup()
 
-        for fname in MANAGED:
+        for i, fname in enumerate(MANAGED):
+            if fill:
+                # Alternate white/amber flashes to show download progress
+                fill(255, 255, 255) if i % 2 == 0 else fill(255, 140, 0)
             print('OTA: fetching', fname)
             content = _fetch(fname)
             with open(fname + '.new', 'w') as f:

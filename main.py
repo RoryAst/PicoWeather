@@ -25,7 +25,7 @@ def connect_wifi():
         return True
     wlan.connect(secrets.SSID, secrets.PASSWORD)
     pos = 0
-    for _ in range(80):  # 80 × 0.25 s = 20 s timeout
+    for _ in range(300):  # 300 × 0.07 s = 21 s timeout
         if wlan.isconnected():
             return True
         for i in range(secrets.NUM_LEDS):
@@ -33,7 +33,7 @@ def connect_wifi():
         np[pos % secrets.NUM_LEDS] = (0, 0, secrets.BRIGHTNESS)
         np.write()
         pos += 1
-        time.sleep(0.25)
+        time.sleep(0.07)
     return False
 
 
@@ -71,7 +71,7 @@ def main():
     flash_green()
 
     import updater
-    updater.check()
+    updater.check(fill)
 
     while True:
         try:
@@ -79,7 +79,7 @@ def main():
             print('Today high: {}C  Yesterday high: {}C'.format(today_high, yest_high))
 
             if today_high > yest_high:
-                fill(255, 0, 0)    # red: warmer than yesterday
+                fill(255, 80, 0)   # orange: warmer than yesterday
             elif today_high < yest_high:
                 fill(0, 0, 255)    # blue: colder than yesterday
             else:
