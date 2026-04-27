@@ -1,5 +1,6 @@
 import network
 import urequests
+import ujson
 import neopixel
 import machine
 import time
@@ -23,92 +24,72 @@ def connect_wifi():
     if wlan.isconnected():
         return True
     wlan.connect(secrets.SSID, secrets.PASSWORD)
-    for _ in range(20):
+    pos = 0
+    for _ in range(80):  # 80 × 0.25 s = 20 s timeout
         if wlan.isconnected():
             return True
-        time.sleep(1)
+        for i in range(secrets.NUM_LEDS):
+            np[i] = (0, 0, 0)
+        np[pos % secrets.NUM_LEDS] = (0, 0, secrets.BRIGHTNESS)
+        np.write()
+        pos += 1
+        time.sleep(0.25)
     return False
 
 
-def parse_temp(section, class_attr=None):
-    """Find the first <temperature> in section, optionally matching class="class_attr"."""
-    offset = 0
-    while True:
-        idx = section.find('<temperature', offset)
-        if idx == -1:
-            return None
-        tag_end = section.find('>', idx)
-        if tag_end == -1:
-            return None
-        val_start = tag_end + 1
-        val_end = section.find('<', val_start)
-        if val_end == -1:
-            return None
-        tag = section[idx:tag_end + 1]
-        if class_attr is not None and ('class="' + class_attr + '"') not in tag:
-            offset = val_end
-            continue
-        val = section[val_start:val_end].strip()
-        if val not in ('', 'N/A', 'M', '--'):
-            try:
-                return float(val)
-            except ValueError:
-                pass
-        offset = val_end
-
-
 def fetch_temps():
-    url = 'https://dd.weather.gc.ca/citypage_weather/xml/{}/{}_e.xml'.format(
-        secrets.PROVINCE, secrets.STATION
-    )
+    url = (
+        'https://api.open-meteo.com/v1/forecast'
+        '?latitude={}&longitude={}'
+        '&daily=temperature_2m_max'
+        '&past_days=1&forecast_days=1'
+        '&timezone={}'
+    ).format(secrets.LATITUDE, secrets.LONGITUDE, secrets.TIMEZONE)
+
     resp = urequests.get(url, timeout=20)
-    xml = resp.text
+    data = ujson.loads(resp.text)
     resp.close()
-
-    c0 = xml.find('<currentConditions>')
-    c1 = xml.find('</currentConditions>', c0)
-    current = parse_temp(xml[c0:c1])
-
-    y0 = xml.find('<yesterdayConditions>')
-    y1 = xml.find('</yesterdayConditions>', y0)
-    yest_high = parse_temp(xml[y0:y1], 'high')
-
-    xml = None  # free before GC
     gc.collect()
 
-    return current, yest_high
+    highs = data['daily']['temperature_2m_max']
+    return highs[1], highs[0]  # today's forecast high, yesterday's high
+
+
+def flash_green():
+    for _ in range(3):
+        fill(0, 255, 0)
+        time.sleep(0.15)
+        fill(0, 0, 0)
+        time.sleep(0.15)
 
 
 def main():
-    fill(20, 20, 20)  # dim white: connecting to WiFi
-
     if not connect_wifi():
-        fill(255, 0, 128)  # pink: WiFi failed — fix credentials and reset
+        fill(255, 0, 128)  # pink: WiFi failed
         return
+
+    flash_green()
 
     import updater
     updater.check()
-    # If an update was found, machine.reset() was called above and we never reach here.
 
     while True:
         try:
-            current, yest_high = fetch_temps()
-            print('Now: {}C  Yesterday high: {}C'.format(current, yest_high))
+            today_high, yest_high = fetch_temps()
+            print('Today high: {}C  Yesterday high: {}C'.format(today_high, yest_high))
 
-            if current is None or yest_high is None:
-                fill(255, 165, 0)  # amber: data missing from feed
-            elif current > yest_high:
+            if today_high > yest_high:
                 fill(255, 0, 0)    # red: warmer than yesterday
-            elif current < yest_high:
+            elif today_high < yest_high:
                 fill(0, 0, 255)    # blue: colder than yesterday
             else:
                 fill(0, 255, 100)  # teal: same as yesterday
 
         except Exception as e:
             print('Error:', e)
-            fill(255, 255, 0)      # yellow: network or parse failure
+            fill(255, 255, 0)      # yellow: fetch or parse failure
 
-        time.sleep(600)  # refresh every 10 minutes
+        time.sleep(600)
 
 
 main()
