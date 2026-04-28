@@ -5,6 +5,7 @@ import neopixel
 import machine
 import time
 import random
+import math
 import gc
 import secrets
 
@@ -31,7 +32,9 @@ def connect_wifi():
             return True
         for i in range(secrets.NUM_LEDS):
             np[i] = (0, 0, 0)
-        np[pos % secrets.NUM_LEDS] = (0, 0, secrets.BRIGHTNESS)
+        np[pos % secrets.NUM_LEDS]       = (0, 0, secrets.BRIGHTNESS)
+        np[(pos - 1) % secrets.NUM_LEDS] = (0, 0, int(secrets.BRIGHTNESS * 0.4))
+        np[(pos - 2) % secrets.NUM_LEDS] = (0, 0, int(secrets.BRIGHTNESS * 0.15))
         np.write()
         pos += 1
         time.sleep(0.07)
@@ -74,6 +77,7 @@ def animate(today_high, yest_high, precip_mm, snow_cm, duration_s):
     is_snow = snow_cm  is not None and snow_cm  > 0.5
 
     deadline = time.time() + duration_s
+    phase = 0.0
     while time.time() < deadline:
         if is_snow:
             fill(*base)
@@ -94,8 +98,15 @@ def animate(today_high, yest_high, precip_mm, snow_cm, duration_s):
             np.write()
             time.sleep(0.12)
         else:
-            fill(*base)
-            time.sleep(1)
+            # Breathe: sine wave between 20% and 100% of base brightness, ~3s period
+            t = (math.sin(phase) + 1) / 2
+            b = (0.2 + 0.8 * t) * secrets.BRIGHTNESS / 255.0
+            colour = (int(base[0] * b), int(base[1] * b), int(base[2] * b))
+            for i in range(secrets.NUM_LEDS):
+                np[i] = colour
+            np.write()
+            phase = (phase + 0.1) % (2 * math.pi)
+            time.sleep(0.05)
 
 
 def flash_green():
