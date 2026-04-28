@@ -4,6 +4,7 @@ import ujson
 import neopixel
 import machine
 import time
+import random
 import gc
 import secrets
 
@@ -37,11 +38,11 @@ def connect_wifi():
     return False
 
 
-def fetch_temps():
+def fetch_weather():
     url = (
         'https://api.open-meteo.com/v1/forecast'
         '?latitude={}&longitude={}'
-        '&daily=temperature_2m_max'
+        '&daily=temperature_2m_max,precipitation_sum,snowfall_sum'
         '&past_days=1&forecast_days=1'
         '&timezone={}'
     ).format(secrets.LATITUDE, secrets.LONGITUDE, secrets.TIMEZONE)
@@ -51,8 +52,50 @@ def fetch_temps():
     resp.close()
     gc.collect()
 
-    highs = data['daily']['temperature_2m_max']
-    return highs[1], highs[0]  # today's forecast high, yesterday's high
+    highs  = data['daily']['temperature_2m_max']
+    precip = data['daily']['precipitation_sum']
+    snow   = data['daily']['snowfall_sum']
+    return highs[1], highs[0], precip[1], snow[1]
+    # today_high, yest_high, precip_mm, snow_cm
+
+
+def animate(today_high, yest_high, precip_mm, snow_cm, duration_s):
+    if today_high > yest_high:
+        base = (255, 80, 0)    # orange: warmer
+    elif today_high < yest_high:
+        base = (0, 0, 255)     # blue: colder
+    else:
+        base = (0, 255, 100)   # teal: same
+
+    factor = secrets.BRIGHTNESS / 255.0
+    scaled = (int(base[0] * factor), int(base[1] * factor), int(base[2] * factor))
+
+    is_rain = precip_mm is not None and precip_mm > 1.0
+    is_snow = snow_cm  is not None and snow_cm  > 0.5
+
+    deadline = time.time() + duration_s
+    while time.time() < deadline:
+        if is_snow:
+            fill(*base)
+            px = random.randint(0, secrets.NUM_LEDS - 1)
+            np[px] = (secrets.BRIGHTNESS, secrets.BRIGHTNESS, secrets.BRIGHTNESS)  # white
+            np.write()
+            time.sleep(0.1)
+            np[px] = scaled
+            np.write()
+            time.sleep(0.3)
+        elif is_rain:
+            fill(*base)
+            px = random.randint(0, secrets.NUM_LEDS - 1)
+            np[px] = (0, 0, secrets.BRIGHTNESS)  # blue
+            np.write()
+            time.sleep(0.08)
+            np[px] = scaled
+            np.write()
+            time.sleep(0.12)
+        else:
+            fill(*base)
+            time.sleep(1)
 
 
 def flash_green():
@@ -75,21 +118,15 @@ def main():
 
     while True:
         try:
-            today_high, yest_high = fetch_temps()
-            print('Today high: {}C  Yesterday high: {}C'.format(today_high, yest_high))
-
-            if today_high > yest_high:
-                fill(255, 80, 0)   # orange: warmer than yesterday
-            elif today_high < yest_high:
-                fill(0, 0, 255)    # blue: colder than yesterday
-            else:
-                fill(0, 255, 100)  # teal: same as yesterday
+            today_high, yest_high, precip_mm, snow_cm = fetch_weather()
+            print('Today: {}C  Yesterday: {}C  Precip: {}mm  Snow: {}cm'.format(
+                today_high, yest_high, precip_mm, snow_cm))
+            animate(today_high, yest_high, precip_mm, snow_cm, 600)
 
         except Exception as e:
             print('Error:', e)
-            fill(255, 255, 0)      # yellow: fetch or parse failure
-
-        time.sleep(600)
+            fill(255, 255, 0)  # yellow: fetch or parse failure
+            time.sleep(600)
 
 
 main()
